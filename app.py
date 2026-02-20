@@ -113,7 +113,7 @@ with st.sidebar:
     location = st.selectbox("Location", locations, index=loc_idx, key="location")
 
     dc = get_design_conditions(location)
-    altitude = st.number_input("Altitude (m)", value=dc.altitude_m if dc else 0.0,
+    altitude = st.number_input("Altitude (m)", value=float(dc.altitude_m) if dc else 0.0,
                                 min_value=0.0, max_value=5000.0, step=1.0, key="altitude")
 
     if dc and location != "CUSTOM":
