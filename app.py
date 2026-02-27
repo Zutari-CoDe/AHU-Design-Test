@@ -236,8 +236,7 @@ def build_chart(inp, states, P):
 
 # ── Sidebar ───────────────────────────────────────────────────────────────────
 with st.sidebar:
-    st.image("https://upload.wikimedia.org/wikipedia/commons/thumb/5/5e/Zutari_logo.svg/320px-Zutari_logo.svg.png",
-             width=140) if False else st.title("🌡️ AHU Design")
+    st.title("🌡️ AHU Design")
     st.caption("Psychrometric Design Tool — Zutari")
     st.divider()
 
