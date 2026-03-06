@@ -167,23 +167,39 @@ def build_chart(inp, states, P):
     if inp.get("show_ashrae"):
         import psychrolib as _psl
         _psl.SetUnitSystem(_psl.SI)
-        s18L = states["ASHRAE 18 Low"]
-        s18H = states["ASHRAE 18 High"]
-        rh_low  = _psl.GetRelHumFromHumRatio(s18L.tdb, s18L.w_gkg/1000, P)
-        rh_high = _psl.GetRelHumFromHumRatio(s18H.tdb, s18H.w_gkg/1000, P)
-        _tdbs = np.linspace(18, 27, 60)
-        bot_x = list(_tdbs)
-        bot_y = [_psl.GetHumRatioFromRelHum(t, rh_low,  P)*1000 for t in _tdbs]
-        right_x = [27.0, 27.0]
-        right_y = [_psl.GetHumRatioFromRelHum(27.0, rh_low,  P)*1000,
-                   _psl.GetHumRatioFromRelHum(27.0, rh_high, P)*1000]
-        top_x = list(reversed(_tdbs))
-        top_y = [_psl.GetHumRatioFromRelHum(t, rh_high, P)*1000 for t in reversed(_tdbs)]
-        zx = bot_x + right_x + top_x + [18.0]
-        zy = bot_y + right_y + top_y + [s18L.w_gkg]
-        fig.add_trace(go.Scatter(x=zx, y=zy, fill="toself", fillcolor=C["ASHRAE_ZONE"],
-            line=dict(color=C["ASHRAE"], width=1.5, dash="dash"),
-            name="ASHRAE A1 Zone", hoverinfo="skip"))
+
+        def _ashrae_zone_polygon(tmin, tmax, rh_lo, rh_hi, dp_min_c, dp_max_c, P, n=300):
+            """Compute ASHRAE zone polygon clipped by both RH curves and dew-point lines."""
+            t = np.linspace(tmin, tmax, n)
+            lower_rh = np.array([_psl.GetHumRatioFromRelHum(ti, rh_lo, P)*1000 for ti in t])
+            upper_rh = np.array([_psl.GetHumRatioFromRelHum(ti, rh_hi, P)*1000 for ti in t])
+            dp_lo_w  = _psl.GetHumRatioFromTDewPoint(dp_min_c, P) * 1000
+            dp_hi_w  = _psl.GetHumRatioFromTDewPoint(dp_max_c, P) * 1000
+            lower = np.maximum(lower_rh, dp_lo_w)
+            upper = np.minimum(upper_rh, dp_hi_w)
+            valid = upper > lower
+            t, lower, upper = t[valid], lower[valid], upper[valid]
+            if len(t) < 2:
+                return [], []
+            px = list(t) + list(t[::-1])
+            py = list(lower) + list(upper[::-1])
+            return px, py
+
+        # ASHRAE TC9.9 2021 zone definitions
+        # (tdb_min, tdb_max, rh_lower, rh_upper, dp_min_°C, dp_max_°C)
+        ASHRAE_ZONES = [
+            ("A3/A4",        5,  40, 0.08, 0.85, -12, 24, "rgba(46,204,113,0.08)",  "#27ae60", "dash"),
+            ("A1/A2",        15, 32, 0.08, 0.80, -12, 17, "rgba(52,152,219,0.10)",  "#2980b9", "dash"),
+            ("Recommended",  18, 27, 0.08, 0.60, -9,  15, "rgba(231,76,60,0.12)",   "#e74c3c", "solid"),
+        ]
+        for zone_name, tmin, tmax, rh_lo, rh_hi, dp_min, dp_max, fill, line_col, dash in ASHRAE_ZONES:
+            zx, zy = _ashrae_zone_polygon(tmin, tmax, rh_lo, rh_hi, dp_min, dp_max, P)
+            if not zx:
+                continue
+            fig.add_trace(go.Scatter(x=zx, y=zy, fill="toself", fillcolor=fill,
+                line=dict(color=line_col, width=1.5, dash=dash),
+                name=f"ASHRAE {zone_name}", legendgroup="ashrae",
+                hovertemplate=f"<b>ASHRAE {zone_name}</b><br>Tdb: %{{x:.1f}}°C<br>W: %{{y:.2f}} g/kg<extra></extra>"))
 
     if inp.get("show_processes"):
         pairs = [
@@ -358,7 +374,7 @@ with st.sidebar:
 
     # ── Chart Options ─────────────────────────────────────────────────────────
     with st.expander("🎨 Chart Options", expanded=False):
-        st.session_state["show_ashrae"]     = st.toggle("Show ASHRAE A1 Zone",  value=st.session_state["show_ashrae"])
+        st.session_state["show_ashrae"]     = st.toggle("Show ASHRAE Zones (Recommended / A1·A2 / A3·A4)",  value=st.session_state["show_ashrae"])
         st.session_state["show_processes"]  = st.toggle("Show Process Lines",   value=st.session_state["show_processes"])
         st.session_state["show_rh_lines"]   = st.toggle("Show RH Curves",       value=st.session_state["show_rh_lines"])
         st.session_state["show_enth_lines"] = st.toggle("Show Enthalpy Lines",  value=st.session_state["show_enth_lines"])

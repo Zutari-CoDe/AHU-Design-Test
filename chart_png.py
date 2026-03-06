@@ -157,31 +157,38 @@ def render_chart_png(inp: dict, states: dict, P: float) -> bytes:
     tc, wc = _clip(ts_sat, ws_sat)
     ax.plot(tc, wc, color=C["sat"], lw=1.8, zorder=5)
 
-    # ── ASHRAE A1 zone – constant RH boundaries matching Excel TC9.9 zone ─
-    ashrae_req = ["ASHRAE 18 Low","ASHRAE 18 High","ASHRAE 27 Low","ASHRAE 27 High"]
-    if all(p in states for p in ashrae_req):
-        import numpy as _np, psychrolib as _psl
-        _psl.SetUnitSystem(_psl.SI)
-        s18L = states["ASHRAE 18 Low"];  s18H = states["ASHRAE 18 High"]
-        # Derive the two RH boundaries from the 18°C corner points
-        rh_low  = _psl.GetRelHumFromHumRatio(s18L.tdb, s18L.w_gkg/1000, P)
-        rh_high = _psl.GetRelHumFromHumRatio(s18H.tdb, s18H.w_gkg/1000, P)
-        _tdbs = _np.linspace(18, 27, 60)
-        # bottom boundary: constant RH low (tdb 18→27)
-        bot_x = list(_tdbs)
-        bot_y = [_psl.GetHumRatioFromRelHum(t, rh_low, P)*1000 for t in _tdbs]
-        # right edge at tdb=27 (bottom to top)
-        right_x = [27.0, 27.0]
-        right_y = [_psl.GetHumRatioFromRelHum(27.0, rh_low, P)*1000,
-                   _psl.GetHumRatioFromRelHum(27.0, rh_high, P)*1000]
-        # top boundary: constant RH high (tdb 27→18)
-        top_x = list(reversed(_tdbs))
-        top_y = [_psl.GetHumRatioFromRelHum(t, rh_high, P)*1000 for t in reversed(_tdbs)]
-        # left edge at tdb=18 closes the polygon
-        zx = bot_x + right_x + top_x + [18.0]
-        zy = bot_y + right_y + top_y + [s18L.w_gkg]
-        ax.fill(zx, zy, color=C["ashrae_a1_fill"], alpha=0.10, zorder=3)
-        ax.plot(zx, zy, color=C["ashrae_a1"], lw=1.5, ls="--", zorder=4)
+    # ── ASHRAE TC9.9 2021 multi-zone polygons ────────────────────────────
+    import numpy as _np, psychrolib as _psl
+    _psl.SetUnitSystem(_psl.SI)
+
+    def _ashrae_poly(tmin, tmax, rh_lo, rh_hi, dp_min_c, dp_max_c, n=300):
+        """Zone polygon clipped by RH curves and dew-point horizontal lines."""
+        t = _np.linspace(tmin, tmax, n)
+        lo_rh = _np.array([_psl.GetHumRatioFromRelHum(ti, rh_lo, P)*1000 for ti in t])
+        hi_rh = _np.array([_psl.GetHumRatioFromRelHum(ti, rh_hi, P)*1000 for ti in t])
+        dp_lo_w = _psl.GetHumRatioFromTDewPoint(dp_min_c, P) * 1000
+        dp_hi_w = _psl.GetHumRatioFromTDewPoint(dp_max_c, P) * 1000
+        lower = _np.maximum(lo_rh, dp_lo_w)
+        upper = _np.minimum(hi_rh, dp_hi_w)
+        valid = upper > lower
+        t, lower, upper = t[valid], lower[valid], upper[valid]
+        if len(t) < 2:
+            return [], []
+        return list(t) + list(t[::-1]), list(lower) + list(upper[::-1])
+
+    # (label, tmin, tmax, rh_lo, rh_hi, dp_min, dp_max, fill_colour, line_colour, linestyle)
+    ASHRAE_ZONES_PNG = [
+        ("A3/A4",       5,  40, 0.08, 0.85, -12, 24, "#27ae60", "#27ae60", "--"),
+        ("A1/A2",       15, 32, 0.08, 0.80, -12, 17, "#2980b9", "#2980b9", "--"),
+        ("Recommended", 18, 27, 0.08, 0.60,  -9, 15, "#e74c3c", "#e74c3c", "-"),
+    ]
+    for zlabel, ztmin, ztmax, zrh_lo, zrh_hi, zdp_min, zdp_max, zfill, zline, zls in ASHRAE_ZONES_PNG:
+        zx, zy = _ashrae_poly(ztmin, ztmax, zrh_lo, zrh_hi, zdp_min, zdp_max)
+        if not zx:
+            continue
+        ax.fill(zx, zy, color=zfill, alpha=0.08, zorder=3)
+        ax.plot(zx, zy, color=zline, lw=1.5, ls=zls, zorder=4,
+                label=f"ASHRAE {zlabel}")
 
     # ── Process lines ─────────────────────────────────────────────────────
     proc_pairs = [
